@@ -1,0 +1,176 @@
+---
+title: "HW1"
+author: "Yuelin Long"
+date: "February 17, 2019"
+output: html_document
+---
+
+## Problem 1
+```{r}
+library(tidyverse)
+#Data import
+x = rep(0:4)
+y = c(2,8,15,23,27)
+m = rep(30,5)
+resp = cbind(y,m-y)
+```
+###Question 1
+```{r}
+# Modeling
+## fit logistic model
+glm_logit=glm(resp~x, family=binomial(link='logit'))
+summary(glm_logit)
+
+sol_11 = function(model){
+b1 = model %>% 
+  broom::tidy() %>% 
+  filter(term == 'x') %>% 
+  select(estimate) %>% 
+  as.numeric()
+
+b0 = model %>% 
+  broom::tidy() %>% 
+  filter(term == '(Intercept)') %>% 
+  select(estimate) %>% 
+  as.numeric()
+
+b_se = model %>% 
+  broom::tidy() %>% 
+  filter(term == 'x') %>% 
+  select(std.error) %>% 
+  as.numeric()
+
+b_lower_ci = b1 - b_se * qnorm(0.025)
+b_upper_ci = b1 + b_se * qnorm(0.025)
+
+dev = model %>% 
+  broom::glance() %>% 
+  select(deviance) %>% 
+  as.numeric()
+
+p = exp(b0 + b1*0.01) / (1+exp(b0 + b1*0.01))
+
+print(c(b1, b_lower_ci, b_upper_ci, dev, p))
+}
+
+## fit a probit model
+glm_probit=glm(resp~x, family=binomial(link='probit')) 
+## fit a complementary log log model
+glm_clog=glm(resp~x, family=binomial(link='cloglog'))
+
+
+#Print problem 1 question 1
+print("logit")
+sol_11(glm_logit)
+
+print("probit")
+sol_11(glm_probit)
+
+print("clog")
+sol_11(glm_clog)
+```
+
+###Question 2
+```{r}
+sol_12 = function(model){
+b1 = model %>% 
+  broom::tidy() %>% 
+  filter(term == 'x') %>% 
+  select(estimate) %>% 
+  as.numeric()
+
+b0 = model %>% 
+  broom::tidy() %>% 
+  filter(term == '(Intercept)') %>% 
+  select(estimate) %>% 
+  as.numeric()
+
+
+betacov=vcov(model) # inverse fisher information
+x0fit=-b0/b1
+10^x0fit # point estimate of LD50
+varx0=betacov[1,1]/(b1^2)+betacov[2,2]*(b0^2)/(b1^4)-2*betacov[1,2]*b0/(b1^3)
+exp((x0fit+c(qnorm(0.025),-qnorm(0.025))*sqrt(varx0))) # 95% CI for LD50
+}
+
+#Print problem 1 question 2: LD50 95% Confidence Interval
+print("logit")
+sol_12(glm_logit)
+
+print("probit")
+sol_12(glm_probit)
+
+print("clog")
+sol_12(glm_clog)
+```
+
+
+## Problem 2
+```{r}
+#Data import
+x = seq(10000,90000,5000)
+y = c(0,2,4,2,12,14,10,7,5,5,3,5,2,0,4,2,1)
+m = c(4,6,10,12,39,36,22,14,10,12,8,9,3,1,5,2,1)
+resp = cbind(y,m-y)
+n = length(y)
+p = 2
+
+#Modeling
+glm_logit=glm(resp~x, family=binomial(link='logit'))
+summary(glm_logit)
+
+#Goodness of fit
+dev = glm_logit %>% 
+  broom::glance() %>% 
+  select(deviance) %>% 
+  as.numeric()
+
+#Coefficient
+b1 = glm_logit %>% 
+  broom::tidy() %>% 
+  filter(term == 'x') %>% 
+  select(estimate) %>% 
+  as.numeric()
+
+b0 = glm_logit %>% 
+  broom::tidy() %>% 
+  filter(term == '(Intercept)') %>% 
+  select(estimate) %>% 
+  as.numeric()
+
+b_se = glm_logit %>% 
+  broom::tidy() %>% 
+  filter(term == 'x') %>% 
+  select(std.error) %>% 
+  as.numeric()
+
+critical_value = qchisq(0.95,n-p)
+
+qchisq(0.95,n-p)
+```
+
+### Question 1
+As we can see, the deviance is `r dev`, while the critical value is `r critical_value`. Since the deviance is smaller than critical value, we fail to reject null, and believe that the model is a good fit.
+
+### Question 2
+For 1 unit change of the scholarship amount, the log odds of enrollment would increase by `r b1`. The confidence interval is (`r b1 - b_se * qnorm(0.025)`, `r b1 - b_se * qnorm(0.025)`)
+
+### Question 3
+```{r}
+#Enrollment rate is 40%, meaning log(0.4/1-0.4) = b0 + b1*x. Solve for x
+
+x0 = (log(0.4/(1-0.4)) - b0)/b1
+
+#Confidence interval
+
+betacov=vcov(glm_logit) # inverse fisher information
+x0fit=-b0/b1
+varx0=betacov[1,1]/(b1^2)+betacov[2,2]*(b0^2)/(b1^4)-2*betacov[1,2]*b0/(b1^3)
+exp((x0fit+c(qnorm(0.025),-qnorm(0.025))*sqrt(varx0))) # 95% CI for LD50
+
+
+x0_lower = x0fit+qnorm(0.025)*sqrt(varx0)
+x0_upper = x0fit-qnorm(0.025)*sqrt(varx0)
+```
+
+To get 40% yield rate, we should provide $`r x0` scholarship, with a confidence interval to be (`r x0_lower`, `r x0_upper`)
