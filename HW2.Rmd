@@ -19,9 +19,8 @@ resp = cbind(y,m-y)
 # Modeling
 ## fit logistic model
 glm_logit=glm(resp~x, family=binomial(link='logit'))
-summary(glm_logit)
 
-sol_11 = function(model){
+sol_11 = function(model, ref){
 b1 = model %>% 
   broom::tidy() %>% 
   filter(term == 'x') %>% 
@@ -40,15 +39,21 @@ b_se = model %>%
   select(std.error) %>% 
   as.numeric()
 
-b_lower_ci = b1 - b_se * qnorm(0.025)
-b_upper_ci = b1 + b_se * qnorm(0.025)
+b_lower_ci = b1 + b_se * qnorm(0.025)
+b_upper_ci = b1 - b_se * qnorm(0.025)
 
 dev = model %>% 
   broom::glance() %>% 
   select(deviance) %>% 
   as.numeric()
 
-p = exp(b0 + b1*0.01) / (1+exp(b0 + b1*0.01))
+if (ref == 1){
+  p = exp(b0 + b1*0.01) / (1+exp(b0 + b1*0.01))
+} else if (ref == 2){
+  p = pnorm((b0 + b1*0.01))
+} else {
+  p = 1- exp(-exp(b0 + b1*0.01))
+}
 
 print(c(b1, b_lower_ci, b_upper_ci, dev, p))
 }
@@ -57,22 +62,26 @@ print(c(b1, b_lower_ci, b_upper_ci, dev, p))
 glm_probit=glm(resp~x, family=binomial(link='probit')) 
 ## fit a complementary log log model
 glm_clog=glm(resp~x, family=binomial(link='cloglog'))
+```
 
-
+The result for question 1 is as follows (order by stimateof β, CI for β: lower to upper, Deviance, p(dying|x= 0.01)):
+```{r}
 #Print problem 1 question 1
 print("logit")
-sol_11(glm_logit)
+sol_11(glm_logit,1)
+
 
 print("probit")
-sol_11(glm_probit)
+sol_11(glm_probit,2)
 
 print("clog")
-sol_11(glm_clog)
+sol_11(glm_clog,3)
+
 ```
 
 ###Question 2
 ```{r}
-sol_12 = function(model){
+sol_12 = function(model,ref){
 b1 = model %>% 
   broom::tidy() %>% 
   filter(term == 'x') %>% 
@@ -85,23 +94,34 @@ b0 = model %>%
   select(estimate) %>% 
   as.numeric()
 
-
 betacov=vcov(model) # inverse fisher information
-x0fit=-b0/b1
-10^x0fit # point estimate of LD50
-varx0=betacov[1,1]/(b1^2)+betacov[2,2]*(b0^2)/(b1^4)-2*betacov[1,2]*b0/(b1^3)
-exp((x0fit+c(qnorm(0.025),-qnorm(0.025))*sqrt(varx0))) # 95% CI for LD50
+
+if (ref == 1){
+  g_50 = log(0.5/(1-0.5))
+} else if (ref == 2){
+  g_50 = qnorm(0.5)
+} else {
+  g_50 = log(-log(1-0.5))
+}
+
+x0fit = (g_50 - b0)/b1
+point_est = exp(x0fit) # point estimate of LD50
+varx0=betacov[1,1]/(b1^2)+betacov[2,2]*((b0-g_50)^2)/(b1^4)-2*betacov[1,2]*(b0-g_50)/(b1^3)
+#90% CI
+x0_upper = exp((x0fit-qnorm(0.05)*sqrt(varx0)))
+x0_lower = exp((x0fit+qnorm(0.05)*sqrt(varx0)))
+print(c(point_est, x0_lower, x0_upper))
 }
 
 #Print problem 1 question 2: LD50 95% Confidence Interval
 print("logit")
-sol_12(glm_logit)
+sol_12(glm_logit,1)
 
 print("probit")
-sol_12(glm_probit)
+sol_12(glm_probit,2)
 
 print("clog")
-sol_12(glm_clog)
+sol_12(glm_clog,3)
 ```
 
 
@@ -112,18 +132,12 @@ x = seq(10000,90000,5000)
 y = c(0,2,4,2,12,14,10,7,5,5,3,5,2,0,4,2,1)
 m = c(4,6,10,12,39,36,22,14,10,12,8,9,3,1,5,2,1)
 resp = cbind(y,m-y)
-n = length(y)
+n = 10
 p = 2
 
 #Modeling
 glm_logit=glm(resp~x, family=binomial(link='logit'))
 summary(glm_logit)
-
-#Goodness of fit
-dev = glm_logit %>% 
-  broom::glance() %>% 
-  select(deviance) %>% 
-  as.numeric()
 
 #Coefficient
 b1 = glm_logit %>% 
@@ -131,46 +145,53 @@ b1 = glm_logit %>%
   filter(term == 'x') %>% 
   select(estimate) %>% 
   as.numeric()
-
 b0 = glm_logit %>% 
   broom::tidy() %>% 
   filter(term == '(Intercept)') %>% 
   select(estimate) %>% 
   as.numeric()
-
 b_se = glm_logit %>% 
   broom::tidy() %>% 
   filter(term == 'x') %>% 
   select(std.error) %>% 
   as.numeric()
 
-critical_value = qchisq(0.95,n-p)
+#Goodness of fit: due to the number in different groups is small (mostly smaller than 10), use Hosmer and Lemeshow goodness of fit (GOF) test
 
-qchisq(0.95,n-p)
+library(ResourceSelection)
+hoslem.test(glm_logit$y, fitted(glm_logit), g=10) 
+
+test_stat = hoslem.test(glm_logit$y, fitted(glm_logit), g=10) %>% 
+  broom::glance() %>% 
+  select(statistic) %>% 
+  as.numeric()
+test_stat
+
+critical_value = qchisq(0.95,n-p)
+critical_value
 ```
 
 ### Question 1
-As we can see, the deviance is `r dev`, while the critical value is `r critical_value`. Since the deviance is smaller than critical value, we fail to reject null, and believe that the model is a good fit.
+As we can see, the test statistics is `r test_stat`, while the critical value is `r critical_value`. Since the test statistics is smaller than critical value, we fail to reject null, and believe that the model is a good fit.
+
+It is also proved by the large p value.
 
 ### Question 2
-For 1 unit change of the scholarship amount, the log odds of enrollment would increase by `r b1`. The confidence interval is (`r b1 - b_se * qnorm(0.025)`, `r b1 - b_se * qnorm(0.025)`)
+For 1 dollar change of the scholarship amount, the log odds of enrollment would increase by `r b1`. The confidence interval is (`r b1 + b_se * qnorm(0.025)`, `r b1 - b_se * qnorm(0.025)`)
 
 ### Question 3
 ```{r}
 #Enrollment rate is 40%, meaning log(0.4/1-0.4) = b0 + b1*x. Solve for x
-
-x0 = (log(0.4/(1-0.4)) - b0)/b1
-
+g_40 = log(0.4/(1-0.4)) 
+x0fit = (g_40 - b0)/b1
 #Confidence interval
-
 betacov=vcov(glm_logit) # inverse fisher information
-x0fit=-b0/b1
-varx0=betacov[1,1]/(b1^2)+betacov[2,2]*(b0^2)/(b1^4)-2*betacov[1,2]*b0/(b1^3)
-exp((x0fit+c(qnorm(0.025),-qnorm(0.025))*sqrt(varx0))) # 95% CI for LD50
-
-
-x0_lower = x0fit+qnorm(0.025)*sqrt(varx0)
+varx0=betacov[1,1]/(b1^2)+betacov[2,2]*((b0-g_40)^2)/(b1^4)-2*betacov[1,2]*(b0-g_40)/(b1^3)
+#95% CI
 x0_upper = x0fit-qnorm(0.025)*sqrt(varx0)
+x0_lower = x0fit+qnorm(0.025)*sqrt(varx0)
+print(c(x0fit, x0_lower, x0_upper))
+
 ```
 
-To get 40% yield rate, we should provide $`r x0` scholarship, with a confidence interval to be (`r x0_lower`, `r x0_upper`)
+To get 40% yield rate, we should provide $`r x0fit` scholarship, with a confidence interval to be (`r x0_lower`, `r x0_upper`)
